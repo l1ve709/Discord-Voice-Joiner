@@ -1,0 +1,20 @@
+{
+    "name": "l1ve709-voice-joinner",
+    "version": "1.0.0",
+    "type": "module",
+    "description": "",
+    "main": "./src/server.js",
+    "scripts": {
+      "start": "node .",
+      "dev": "node .",
+      "test": "echo \"Error: no test specified\" && exit 1"
+    },
+    "author": "l1ve709",
+    "license": "MIT",
+    "dependencies": {
+      "@discordjs/voice": "^0.16.0",
+      "discord.js": "^14.15.3",
+      "discord.js-selfbot-v13": "^2.14.6"
+      
+    }
+  }
