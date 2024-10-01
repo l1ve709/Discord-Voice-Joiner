@@ -1,4 +1,4 @@
-## """Sorumluluk Reddi Beyanı"""
+## ⚠️Sorumluluk Reddi Beyanı⚠️
 
 Bu proje, Discord’un kullanım koşulları ve politikalarını ihlal eden "selfbot" kullanımı içerir. Selfbot kullanımı Discord tarafından yasaklanmıştır ve bu tür bir kullanımdan doğacak herhangi bir hesap yasaklama veya ceza işleminden kesinlikle sorumlu değilim. Bu projeyi kullanmadan önce riskleri göz önünde bulundurun. Saygılarımla -Ediz
 
