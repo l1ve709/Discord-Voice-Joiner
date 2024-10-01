@@ -2,8 +2,6 @@ import config from './config.js';
 import { Client } from 'discord.js-selfbot-v13';
 import { joinVoiceChannel } from '@discordjs/voice';
 
-console.log('l1ve709');
-
 for (let index = 0; index < config.TOKENS.length; index++) {
     let token = config.TOKENS[index];
     const client = new Client({ checkUpdate: false });
