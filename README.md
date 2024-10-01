@@ -70,7 +70,7 @@ Başlatıldığında her bir kullanıcı tokeni belirttiğiniz sunucuya ve ses k
 
 ## Lisans Bilgileri
 
-- MIT Lisansı altına korunmaktadır
+- MIT Lisansı altında korunmaktadır
 
 
 ## Discord Hesabım
