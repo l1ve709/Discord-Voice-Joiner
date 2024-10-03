@@ -10,7 +10,7 @@ Bu proje, Discord’un kullanım koşulları ve politikalarını ihlal eden "sel
 
 Discrod Kullanıcı Tokenlerinizi belirlediğiniz ses kanalına sokun!
 
-## Kullanılan Dil(ler)
+## Kullanılan Dil(ler) ve Kütüphaneler
 
 <picture>
   <source srcset="https://skillicons.dev/icons?i=js,nodejs" media="(prefers-color-scheme: dark)">
