@@ -2,7 +2,7 @@
     "name": "l1ve709-voice-joinner",
     "version": "1.0.0",
     "type": "module",
-    "description": "",
+    "description": "be able to automatically put your accounts in discord audio using user tokens",
     "main": "./src/server.js",
     "scripts": {
       "start": "node .",
