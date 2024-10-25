@@ -35,7 +35,7 @@ export default {
         '1261764628673990839',   // token 13 vc  
         '1261764628673990839'    // token 14 vc
     ],
-    voiceSettings: [  // don't work /bu kısım çalışmıyor
+    voiceSettings: [  // don't work / bu kısım çalışmıyor
         { mute: false, deaf: false },
         { mute: true, deaf: true },   
         { mute: true, deaf: true }, 
