@@ -2,8 +2,8 @@ export default {
     TOKENS: [
            "YOUR_TOKEN", // token 1
            "YOUR_TOKEN", // token 2
-           "YOUR_TOKEN", // token 3      // ! Yardıma ihtiyacın varsa bana Instagram veya Discord üzerinden ulaş l1ve709/wwww.l1ve709.com
-           "YOUR_TOKEN", // token 4      // ! If you need help? Contacnt me on Instagram or Discord l1ve709/wwww.l1ve709.com
+           "YOUR_TOKEN", // token 3      // ! Yardıma ihtiyacın varsa bana Instagram veya Discord üzerinden ulaş cxnsole
+           "YOUR_TOKEN", // token 4      // ! If you need help? Contacnt me on Instagram or Discord cxnsole
            "YOUR_TOKEN", // token 4
            "YOUR_TOKEN", // token 5    
            "YOUR_TOKEN", // token 6
@@ -52,3 +52,4 @@ export default {
         { mute: false, deaf: false }    
     ]
 };
+
