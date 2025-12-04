@@ -57,16 +57,16 @@ Başlatıldığında her bir kullanıcı tokeni belirttiğiniz sunucuya ve ses k
 
 ## Özel Durumlar
 
-- İlk iki token, "l1ve709.com" ile `STREAMING` durumuna geçer. İsterseniz o kısımları silin
+- İlk iki token, "edizsonmez.com.tr" ile `STREAMING` durumuna geçer. İsterseniz o kısımları silin
 - Üçüncü token, özel bir "sen_belirli" durumu gösterir.
 
 ## İletişim
 
 İletişim ve yardım için bana şuralardan ulaşabilirsiniz:
 
-- Instagram: l1ve709
-- Discord: l1ve709
-- Web Sitesi: [l1ve709.com](https://www.l1ve709.com)
+- Instagram: ediz.dll
+- Discord: cxnsole
+- Web Sitesi: [edizsonmez.com.tr](https://edizsonmez.com.tr)
 
 ## Lisans Bilgileri
 
