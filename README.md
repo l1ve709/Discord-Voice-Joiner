@@ -43,7 +43,7 @@ Discrod Kullanıcı Tokenlerinizi belirlediğiniz ses kanalına sokun!
 Projeyi başlatmak için aşağıdaki komutu çalıştırınız:
 
 ```bash
-node main.js
+node server.js
 ```
 
 Başlatıldığında her bir kullanıcı tokeni belirttiğiniz sunucuya ve ses kanalına bağlanacaktır. Belirli tokenler için özel durumu ayarlanacaktır. (degistirilebilir)
