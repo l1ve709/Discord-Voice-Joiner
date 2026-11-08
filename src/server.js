@@ -1,248 +1,198 @@
-import config from './config.js';
 import { Client } from 'discord.js-selfbot-v13';
-import { joinVoiceChannel, VoiceConnectionStatus, entersState } from '@discordjs/voice';
+import { joinVoiceChannel, VoiceConnectionStatus } from '@discordjs/voice';
+import { loadConfig } from './config.js';
 
+const JOIN_TIMEOUT_MS = 15_000;
+const RECOVERY_TIMEOUT_MS = 5_000;
+const MAX_TIMER_MS = 2_147_483_647;
 
-const Colors = {
-    reset: '\x1b[0m',
-    bright: '\x1b[1m',
-    red: '\x1b[31m',
-    green: '\x1b[32m',
-    yellow: '\x1b[33m',
-    blue: '\x1b[34m',
-    magenta: '\x1b[35m',
-    cyan: '\x1b[36m',
-    gray: '\x1b[90m',
-};
-
-function timestamp() {
-    return new Date().toLocaleTimeString('tr-TR', { hour12: false });
+function log(label, message) {
+    console.log(`[${new Date().toLocaleTimeString('en-GB')}] [${label}] ${message}`);
 }
 
-function log(tag, message, color = Colors.cyan) {
-    console.log(`${Colors.gray}[${timestamp()}]${Colors.reset} ${color}[${tag}]${Colors.reset} ${message}`);
+function describeError(error, account) {
+    let message = error instanceof Error ? error.message : String(error);
+    for (const token of [account.settings.token, account.client.token]) {
+        if (token) message = message.replaceAll(token, '[redacted]');
+    }
+    return message;
 }
 
-function logSuccess(tag, message) { log(tag, `✅ ${message}`, Colors.green); }
-function logWarn(tag, message) { log(tag, `⚠️  ${message}`, Colors.yellow); }
-function logError(tag, message) { log(tag, `❌ ${message}`, Colors.red); }
-function logInfo(tag, message) { log(tag, `ℹ️  ${message}`, Colors.blue); }
+function stopVoice(account) {
+    clearTimeout(account.timer);
+    account.timer = undefined;
 
-
-const connections = new Map(); // tag -> { status, voiceConnection, client, tokenConfig }
-
-
-async function connectToVoice(client, tokenConfig, tag, retryCount = 0) {
-    const guild = client.guilds.cache.get(tokenConfig.guildId);
-    if (!guild) {
-        logError(tag, `Sunucu bulunamadı: ${tokenConfig.guildId}`);
-        connections.set(tag, { ...connections.get(tag), status: 'guild_not_found' });
-        return null;
+    const connection = account.connection;
+    account.connection = undefined;
+    if (connection && connection.state.status !== VoiceConnectionStatus.Destroyed) {
+        connection.destroy();
     }
+}
 
-    const voiceChannel = guild.channels.cache.get(tokenConfig.channelId);
-    if (!voiceChannel) {
-        logError(tag, `Ses kanalı bulunamadı: ${tokenConfig.channelId}`);
-        connections.set(tag, { ...connections.get(tag), status: 'channel_not_found' });
-        return null;
-    }
+function setPresence(account) {
+    const { client, label, settings } = account;
+    if (!settings.presence) return;
 
+    const { status = 'online', type, name, url, state } = settings.presence;
     try {
-        const connection = joinVoiceChannel({
-            channelId: voiceChannel.id,
-            guildId: guild.id,
-            adapterCreator: guild.voiceAdapterCreator,
-            group: client.user.id,
-            selfMute: tokenConfig.mute,
-            selfDeaf: tokenConfig.deaf,
-        });
-
-        connection.on(VoiceConnectionStatus.Ready, () => {
-            logSuccess(tag, `Ses kanalına bağlandı: ${voiceChannel.name}` +
-                (tokenConfig.mute ? ' [MUTE]' : '') +
-                (tokenConfig.deaf ? ' [DEAF]' : ''));
-            connections.set(tag, { ...connections.get(tag), status: 'connected', voiceConnection: connection });
-        });
-
-        connection.on(VoiceConnectionStatus.Disconnected, async () => {
-            logWarn(tag, 'Ses bağlantısı koptu, yeniden bağlanılıyor...');
-            connections.set(tag, { ...connections.get(tag), status: 'disconnected' });
-
-            try {
-                await Promise.race([
-                    entersState(connection, VoiceConnectionStatus.Signalling, 5_000),
-                    entersState(connection, VoiceConnectionStatus.Connecting, 5_000),
-                ]);
-            } catch {
-                connection.destroy();
-                if (config.reconnect.enabled) {
-                    await retryConnection(client, tokenConfig, tag);
-                }
-            }
-        });
-
-        connection.on('error', (error) => {
-            logError(tag, `Voice connection hatası: ${error.message}`);
-        });
-
-        return connection;
+        const activity = name || state
+            ? { name: name ?? 'Custom Status', type: type ?? (state ? 'CUSTOM' : 'PLAYING'), url, state }
+            : undefined;
+        client.user.setPresence({ status, activities: activity ? [activity] : undefined });
     } catch (error) {
-        logError(tag, `Ses kanalına bağlanılamadı: ${error.message}`);
-        connections.set(tag, { ...connections.get(tag), status: 'error' });
-        return null;
+        log(label, `Could not set presence. ${describeError(error, account)}`);
     }
 }
 
+function join(account, reconnect) {
+    const { client, label, settings } = account;
 
-async function retryConnection(client, tokenConfig, tag, attempt = 0) {
-    const { maxRetries, delayMs, backoffMultiplier } = config.reconnect;
+    function retry(reason) {
+        stopVoice(account);
+        log(label, reason);
 
-    if (attempt >= maxRetries) {
-        logError(tag, `${maxRetries} deneme sonrası yeniden bağlanılamadı. Vazgeçildi.`);
-        connections.set(tag, { ...connections.get(tag), status: 'failed' });
+        if (!reconnect.enabled || account.retries >= reconnect.maxRetries) {
+            account.status = 'failed';
+            if (reconnect.enabled) log(label, 'No voice retries remaining.');
+            return;
+        }
+
+        const delay = Math.min(
+            reconnect.delayMs * reconnect.backoffMultiplier ** account.retries,
+            MAX_TIMER_MS,
+        );
+        account.retries++;
+        account.status = 'waiting to retry';
+        log(label, `Retry ${account.retries}/${reconnect.maxRetries} in ${delay / 1000}s.`);
+        account.timer = setTimeout(() => join(account, reconnect), delay);
+    }
+
+    const guild = client.guilds.cache.get(settings.guildId);
+    const channel = guild?.channels.cache.get(settings.channelId);
+    if (!channel?.isVoice()) {
+        account.status = 'invalid destination';
+        log(label, guild
+            ? `Voice or stage channel ${settings.channelId} not found in server ${guild.id}.`
+            : `Server ${settings.guildId} not found.`);
         return;
     }
 
-    const waitMs = delayMs * Math.pow(backoffMultiplier, attempt);
-    logInfo(tag, `Yeniden bağlanma denemesi ${attempt + 1}/${maxRetries} — ${(waitMs / 1000).toFixed(1)}s sonra...`);
-
-    await sleep(waitMs);
-
-    const connection = await connectToVoice(client, tokenConfig, tag, attempt + 1);
-    if (!connection && attempt + 1 < maxRetries) {
-        await retryConnection(client, tokenConfig, tag, attempt + 1);
-    }
-}
-
-function sleep(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-
-function setPresence(client, presenceConfig, tag) {
-    if (!presenceConfig) return;
-
+    account.status = 'connecting';
+    let connection;
     try {
-        const activity = { name: presenceConfig.name || '' };
-
-        if (presenceConfig.type) activity.type = presenceConfig.type;
-        if (presenceConfig.url) activity.url = presenceConfig.url;
-        if (presenceConfig.state) activity.state = presenceConfig.state;
-
-        client.user.setPresence({
-            activities: [activity],
-            status: presenceConfig.status || 'online',
+        connection = joinVoiceChannel({
+            channelId: channel.id,
+            guildId: guild.id,
+            adapterCreator: guild.voiceAdapterCreator,
+            group: label,
+            selfMute: settings.mute,
+            selfDeaf: settings.deaf,
         });
-
-        logInfo(tag, `Durum ayarlandı: ${presenceConfig.type || 'CUSTOM'} — "${presenceConfig.name || presenceConfig.state || ''}"`);
     } catch (error) {
-        logError(tag, `Durum ayarlanamadı: ${error.message}`);
+        retry(`Could not start the voice connection. ${describeError(error, account)}`);
+        return;
     }
+
+    account.connection = connection;
+    account.timer = setTimeout(() => retry('Voice connection timed out.'), JOIN_TIMEOUT_MS);
+
+    connection.on('error', error => {
+        log(label, `Voice error. ${describeError(error, account)}`);
+    });
+
+    function updateStatus(status) {
+        if (account.connection !== connection) return;
+
+        if (status === VoiceConnectionStatus.Ready) {
+            clearTimeout(account.timer);
+            account.retries = 0;
+            account.status = 'connected';
+            log(label, `Joined ${channel.name}.`);
+        } else if (status === VoiceConnectionStatus.Destroyed) {
+            retry('Voice connection closed.');
+        } else if (account.status === 'connected') {
+            account.status = 'reconnecting';
+            if (reconnect.enabled) {
+                account.timer = setTimeout(() => retry('Voice connection did not recover.'), RECOVERY_TIMEOUT_MS);
+            } else {
+                stopVoice(account);
+                account.status = 'disconnected';
+                log(label, 'Voice connection lost.');
+            }
+        }
+    }
+
+    connection.on('stateChange', (previous, current) => {
+        if (previous.status !== current.status) updateStatus(current.status);
+    });
+    updateStatus(connection.state.status);
 }
 
+function start() {
+    let config;
+    try {
+        config = loadConfig();
+    } catch (error) {
+        console.error(error.message);
+        process.exitCode = 1;
+        return;
+    }
 
-async function start() {
-    console.log('');
-    console.log(`${Colors.bright}${Colors.magenta}╔══════════════════════════════════════════╗${Colors.reset}`);
-    console.log(`${Colors.bright}${Colors.magenta}║   Discord Voice Joiner v2.0.0            ║${Colors.reset}`);
-    console.log(`${Colors.bright}${Colors.magenta}║   github.com/l1ve709                     ║${Colors.reset}`);
-    console.log(`${Colors.bright}${Colors.magenta}╚══════════════════════════════════════════╝${Colors.reset}`);
-    console.log('');
+    const accounts = config.accounts.map((settings, index) => ({
+        client: new Client({ checkUpdate: false }),
+        label: `Account #${index + 1}`,
+        settings,
+        status: 'signing in',
+        retries: 0,
+        connection: undefined,
+        timer: undefined,
+    }));
 
-    logInfo('Sistem', `${config.tokens.length} token yüklendi`);
-    logInfo('Sistem', `Reconnect: ${config.reconnect.enabled ? 'Aktif' : 'Devre dışı'} (max ${config.reconnect.maxRetries} deneme)`);
-    console.log('');
+    const report = config.statusReportIntervalMs > 0
+        ? setInterval(() => {
+            for (const { label, status } of accounts) log(label, status);
+        }, config.statusReportIntervalMs)
+        : undefined;
+    report?.unref();
 
-    const clients = [];
-
-    for (let index = 0; index < config.tokens.length; index++) {
-        const tokenConfig = config.tokens[index];
-        const client = new Client({ checkUpdate: false });
-        const tokenLabel = `Token #${index + 1}`;
-
-        clients.push({ client, tokenConfig, tag: tokenLabel });
-
-        client.on('ready', async () => {
-            const tag = client.user.tag;
-            logSuccess(tag, 'Giriş başarılı');
-
-            connections.set(tag, { status: 'connecting', client, tokenConfig });
-
-            await connectToVoice(client, tokenConfig, tag);
-
-            setPresence(client, tokenConfig.presence, tag);
-        });
-
-        client.on('error', (error) => {
-            logError(tokenLabel, `Client hatası: ${error.message}`);
-        });
-
-        client.on('disconnect', () => {
-            logWarn(tokenLabel, 'Client bağlantısı kesildi');
-        });
-
-        try {
-            await client.login(tokenConfig.token);
-        } catch (error) {
-            logError(tokenLabel, `Giriş başarısız: ${error.message}`);
+    let stopping = false;
+    function shutdown() {
+        if (stopping) return;
+        stopping = true;
+        clearInterval(report);
+        for (const account of accounts) {
+            stopVoice(account);
+            account.client.destroy();
         }
     }
 
+    process.on('SIGINT', shutdown);
+    process.on('SIGTERM', shutdown);
 
-    if (config.statusReportIntervalMs > 0) {
-        setInterval(() => {
-            console.log('');
-            logInfo('Rapor', '── Bağlantı Durumu ──');
-            for (const [tag, info] of connections) {
-                const statusIcon = info.status === 'connected' ? '🟢' :
-                    info.status === 'connecting' ? '🟡' :
-                        info.status === 'disconnected' ? '🟠' : '🔴';
-                log('Rapor', `${statusIcon} ${tag}: ${info.status}`, Colors.gray);
-            }
-            console.log('');
-        }, config.statusReportIntervalMs);
+    for (const account of accounts) {
+        const { client, label, settings } = account;
+        client.once('ready', () => {
+            if (stopping) return;
+            log(label, `Signed in as ${client.user.tag}.`);
+            setPresence(account);
+            join(account, config.reconnect);
+        });
+        client.on('error', error => log(label, `Client error. ${describeError(error, account)}`));
+        client.on('invalidated', () => {
+            stopVoice(account);
+            client.destroy();
+            account.status = 'session invalidated';
+            log(label, 'Discord invalidated the session.');
+        });
+
+        client.login(settings.token).catch(error => {
+            if (stopping) return;
+            stopVoice(account);
+            account.status = 'login failed';
+            log(label, `Could not sign in. ${describeError(error, account)}`);
+            if (accounts.every(item => item.status === 'login failed')) process.exitCode = 1;
+        });
     }
-
-
-    async function shutdown(signal) {
-        console.log('');
-        logWarn('Sistem', `${signal} alındı — kapatılıyor...`);
-
-        for (const [tag, info] of connections) {
-            try {
-                if (info.voiceConnection) {
-                    info.voiceConnection.destroy();
-                    logInfo(tag, 'Voice bağlantısı kapatıldı');
-                }
-                if (info.client) {
-                    info.client.destroy();
-                }
-            } catch {
-            }
-        }
-
-        for (const { client } of clients) {
-            try {
-                client.destroy();
-            } catch {
-            }
-        }
-
-        logSuccess('Sistem', 'Tüm bağlantılar kapatıldı. Güle güle! 👋');
-        process.exit(0);
-    }
-
-    process.on('SIGINT', () => shutdown('SIGINT'));
-    process.on('SIGTERM', () => shutdown('SIGTERM'));
 }
-
-
-process.on('unhandledRejection', (reason) => {
-    logError('Sistem', `Beklenmeyen hata (unhandledRejection): ${reason}`);
-});
-
-process.on('uncaughtException', (error) => {
-    logError('Sistem', `Beklenmeyen hata (uncaughtException): ${error.message}`);
-});
 
 start();

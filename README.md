@@ -1,144 +1,55 @@
-## ⚠️Sorumluluk Reddi Beyanı⚠️
+# Discord Voice Joiner
 
-Bu proje, Discord'un kullanım koşulları ve politikalarını ihlal eden "selfbot" kullanımı içerir. Selfbot kullanımı Discord tarafından yasaklanmıştır ve bu tür bir kullanımdan doğacak herhangi bir hesap yasaklama veya ceza işleminden kesinlikle sorumlu değilim. Bu projeyi kullanmadan önce riskleri göz önünde bulundurun. Saygılarımla -Ediz
+Discord Voice Joiner signs in to one or more Discord user accounts and joins a voice or stage channel for each account.
 
-[Detaylı Resmi Bilgiler](https://support.discord.com/hc/en-us/articles/115002192352-Automated-User-Accounts-Self-Bots)
+Discord prohibits automated user accounts and may terminate accounts that use them. See [Discord’s self-bot policy](https://support.discord.com/hc/en-us/articles/115002192352-Automated-User-Accounts-Self-Bots).
 
-# Discord Selfbot Voice Joiner v2.0
+## Setup
 
-Discord kullanıcı tokenlerinizi belirlediğiniz ses kanallarına otomatik olarak bağlayın!
+Requires Node.js 22.12.0 or later and npm.
 
-## Kullanılan Dil(ler) ve Kütüphaneler
-
-<picture>
-  <source srcset="https://skillicons.dev/icons?i=js,nodejs" media="(prefers-color-scheme: dark)">
-  <img src="https://skillicons.dev/icons?i=js,nodejs">
-</picture>
-
-## Gereksinimler
-
-- **Node.js v22.12.0** veya üstü ([İndir](https://nodejs.org))
-- npm (Node.js ile birlikte gelir)
-
-## Özellikler
-
-- ✅ Birden fazla token ile ses kanallarına otomatik katılım
-- ✅ Her token için ayrı sunucu, kanal, presence ve ses ayarları
-- ✅ Mute/Deaf desteği (selfMute/selfDeaf)
-- ✅ Otomatik yeniden bağlanma (exponential backoff)
-- ✅ Renkli ve zamanlı log çıktıları
-- ✅ Periyodik bağlantı durum raporu
-- ✅ Graceful shutdown (Ctrl+C ile temiz kapanma)
-- ✅ Güvenli token yönetimi (.env dosyası)
-
-## Kurulum
-
-1. Bu projeyi bilgisayarınıza klonlayın veya indirin:
-   ```bash
-   git clone https://github.com/l1ve709/Discord-Voice-Joiner.git
-   cd Discord-Voice-Joiner
-   ```
-
-2. Gerekli kütüphaneleri yükleyin:
-   ```bash
-   npm install
-   ```
-
-3. `.env` dosyanızı oluşturun:
-   ```bash
-   cp .env.example .env
-   ```
-
-4. `.env` dosyasını açın ve tokenlerinizi girin:
-   ```env
-   TOKENS=token1,token2,token3
-   DEFAULT_GUILD_ID=000000000000000000
-   DEFAULT_CHANNEL_ID=000000000000000000
-   ```
-
-## Kullanım
-
-Projeyi başlatmak için:
-```bash
-npm start
+```sh
+git clone https://github.com/l1ve709/Discord-Voice-Joiner.git
+cd Discord-Voice-Joiner
+npm ci
 ```
 
-## Yapılandırma
+Copy `.env.example` to `.env` with `cp .env.example .env` or, in PowerShell, `Copy-Item .env.example .env`. Set the following values:
 
-### Temel Yapılandırma (`.env` dosyası)
+| Variable | Value |
+| --- | --- |
+| `TOKENS` | Comma-separated Discord user tokens |
+| `DEFAULT_GUILD_ID` | ID of the default Discord server |
+| `DEFAULT_CHANNEL_ID` | ID of the default voice or stage channel |
 
-| Değişken             | Açıklama                                    |
-|----------------------|---------------------------------------------|
-| `TOKENS`             | Discord tokenleri (virgülle ayrılmış)       |
-| `DEFAULT_GUILD_ID`   | Varsayılan sunucu ID'si                     |
-| `DEFAULT_CHANNEL_ID` | Varsayılan ses kanalı ID'si                 |
+To copy IDs, enable Developer Mode under **User Settings → Advanced**, then right-click the server or channel and choose **Copy ID**. Each account needs access to its destination channel. Keep `.env` private.
 
-### Gelişmiş Yapılandırma (`src/config.js`)
+Run `npm start`. Press Ctrl+C to disconnect and exit.
 
-Her token için ayrı ayar yapmak istiyorsanız, `config.js` içindeki `PER_TOKEN_CONFIG` dizisini düzenleyin:
+## Per-account settings
 
-```javascript
+Edit `PER_TOKEN_CONFIG` in [src/config.js](src/config.js). Entries follow the order in `TOKENS`. Use `{}` to skip an account. Omitted IDs fall back to the defaults in `.env`.
+
+```js
 const PER_TOKEN_CONFIG = [
+    {},
     {
-        guildId: '123456789',              // opsiyonel
-        channelId: '987654321',            // opsiyonel
-        mute: false,                       // opsiyonel
-        deaf: false,                       // opsiyonel
-        presence: {                        // opsiyonel
-            status: 'dnd',                 // 'online' | 'idle' | 'dnd' | 'invisible'
-            type: 'STREAMING',             // 'PLAYING' | 'STREAMING' | 'LISTENING' | 'WATCHING' | 'CUSTOM'
-            name: 'Yayın başlığı',
-            url: 'https://twitch.tv/kanal' // sadece STREAMING için
-        }
+        channelId: '123456789012345678',
+        mute: true,
+        deaf: true,
+        presence: {
+            status: 'idle',
+            type: 'PLAYING',
+            name: 'Chess',
+        },
     },
-    // İkinci token için ayar...
 ];
 ```
 
-> **Not:** `PER_TOKEN_CONFIG`'de belirtilmeyen tokenler `.env` dosyasındaki varsayılan değerleri kullanır.
+Both `mute` and `deaf` default to `false`. Omit `presence` to leave the account’s presence alone. Supported statuses are `online`, `idle`, `dnd`, and `invisible`. To set an activity, supply its `name` and one of `PLAYING`, `STREAMING`, `LISTENING`, `WATCHING`, or `CUSTOM`. Use `url` for a stream link or `state` for custom status text.
 
-### Reconnect Ayarları
+Voice retries start after five seconds and double in delay, up to five attempts per failure. Edit `RECONNECT` to change those settings. Set `STATUS_REPORT_INTERVAL_MS` to `0` to turn off the periodic connection report.
 
-`config.js` içindeki `RECONNECT` nesnesini düzenleyin:
+## License
 
-```javascript
-const RECONNECT = {
-    enabled: true,          // Otomatik yeniden bağlanma
-    maxRetries: 5,          // Maksimum deneme sayısı
-    delayMs: 5000,          // İlk bekleme süresi (ms)
-    backoffMultiplier: 2,   // Her denemede bekleme çarpanı
-};
-```
-
-## Örnek Çıktı
-
-```
-╔══════════════════════════════════════════╗
-║   Discord Voice Joiner v2.0.0            ║
-║   github.com/l1ve709                     ║
-╚══════════════════════════════════════════╝
-
-[14:30:00] [Sistem] ℹ️  3 token yüklendi
-[14:30:00] [Sistem] ℹ️  Reconnect: Aktif (max 5 deneme)
-
-[14:30:01] [User#1234] ✅ Giriş başarılı
-[14:30:01] [User#1234] ✅ Ses kanalına bağlandı: Genel Ses
-[14:30:02] [User#5678] ✅ Giriş başarılı
-[14:30:02] [User#5678] ✅ Ses kanalına bağlandı: Genel Ses [MUTE] [DEAF]
-```
-
-## İletişim
-
-İletişim ve yardım için bana şuralardan ulaşabilirsiniz:
-
-- Instagram: ediz.dll
-- Discord: cxnsole
-- Web Sitesi: [edizsonmez.com.tr](https://edizsonmez.com.tr)
-
-## Lisans Bilgileri
-
-MIT Lisansı altında korunmaktadır.
-
-## Discord Hesabım
-
-![My Discord](https://lantern.rest/api/v1/users/794909914760871967?svg=1&theme=dark&borderRadius=2&hideActivity=1&hideStatus=0)
+[MIT](LICENSE)

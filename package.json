@@ -15,7 +15,6 @@
   "license": "MIT",
   "dependencies": {
     "@discordjs/voice": "^0.19.2",
-    "debug": "^4.4.3",
     "discord.js-selfbot-v13": "^3.7.1",
     "dotenv": "^16.4.7"
   }
