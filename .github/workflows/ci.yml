@@ -28,3 +28,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
+      - run: npm run check
+        env:
+          BOT_TOKENS: offline.bot.fixture
+          DEFAULT_GUILD_ID: '101'
+          DEFAULT_CHANNEL_ID: '102'

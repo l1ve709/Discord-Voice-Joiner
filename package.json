@@ -7,6 +7,7 @@
   "scripts": {
     "start": "node .",
     "dev": "node .",
+    "check": "node . --check",
     "test": "node --test"
   },
   "engines": {

@@ -24,7 +24,7 @@ npm ci
 
 To copy IDs, enable Developer Mode under **User Settings → Advanced**, then right-click the server or channel and choose **Copy ID**. Keep `.env` private.
 
-Run `npm start -- --check` to validate the configuration and see where each bot will connect. Then run `npm start` and look for `Joined <channel name>.` Press Ctrl+C to disconnect and exit.
+Run `npm run check` to validate the configuration and see where each bot will connect. Then run `npm start` and look for `Joined <channel name>.` Press Ctrl+C to disconnect and exit.
 
 To upgrade from 2.x, replace `TOKENS` with `BOT_TOKENS` and use tokens issued for Discord bots. Keep your existing server and channel IDs.
 
