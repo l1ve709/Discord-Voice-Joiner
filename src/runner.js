@@ -110,36 +110,50 @@ function startAccount(account, reconnect, { createClient, connectVoice, log, fin
 
     function monitor(attempt, channelName) {
         let interrupted = false;
+        let sessionClosed = false;
         attempt.on('error', error => {
             if (!closed && connection === attempt) log(label, 'Voice error.', error);
         });
+
+        function replacementFailed(message, connectionTimedOut = false) {
+            if (sessionClosed) {
+                finish(connectionTimedOut ? 'failed' : 'disconnected', message, {
+                    failed: connectionTimedOut || !hasJoined,
+                    sendLeave: false,
+                });
+            } else {
+                retry(message);
+            }
+        }
 
         function update(current) {
             if (closed || connection !== attempt || account.status === 'disconnecting') return;
             if (current.status === VoiceConnectionStatus.Ready) {
                 interrupted = false;
+                sessionClosed = false;
                 hasJoined = true;
                 account.status = 'connected';
                 log(label, `Joined ${channelName}.`);
                 schedule(() => { retries = 0; }, STABLE_CONNECTION_MS);
                 return;
             }
-            if (current.status === VoiceConnectionStatus.Disconnected &&
-                current.reason === VoiceConnectionDisconnectReason.WebSocketClose &&
-                current.closeCode === 4014 && !interrupted) {
-                interrupted = true;
-                account.status = 'waiting for voice server';
-                schedule(() => finish('disconnected', 'Discord closed the voice session.', {
-                    failed: !hasJoined,
-                    sendLeave: false,
-                }), RECOVERY_TIMEOUT_MS);
+            if (current.status === VoiceConnectionStatus.Disconnected) {
+                sessionClosed ||= current.reason === VoiceConnectionDisconnectReason.WebSocketClose &&
+                    current.closeCode === 4014;
+                if (!interrupted && (sessionClosed ||
+                    (hasJoined && reconnect.enabled &&
+                        current.reason === VoiceConnectionDisconnectReason.EndpointRemoved))) {
+                    interrupted = true;
+                    account.status = 'waiting for voice server';
+                    schedule(() => replacementFailed('Discord did not provide a replacement voice server.'),
+                        RECOVERY_TIMEOUT_MS);
+                }
             }
             if (interrupted) {
                 if (current.status === VoiceConnectionStatus.Connecting && account.status === 'waiting for voice server') {
                     account.status = 'reconnecting';
-                    schedule(() => finish('failed', 'The replacement voice server did not finish connecting.', {
-                        sendLeave: false,
-                    }), JOIN_TIMEOUT_MS);
+                    schedule(() => replacementFailed('The replacement voice server did not finish connecting.', true),
+                        JOIN_TIMEOUT_MS);
                 }
                 return;
             }

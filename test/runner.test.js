@@ -182,6 +182,23 @@ test('lets a voice server move recover, then stops if Discord removes the accoun
     assert.deepEqual(exits, [0]);
 });
 
+test('waits for a replacement when Discord removes the voice endpoint', t => {
+    const { clients: [client], attempts, exits, tick } = scenario(t);
+    client.emit('clientReady');
+    const [{ voice }] = attempts;
+    voice.transition(Status.Ready);
+    voice.transition(Status.Disconnected, { reason: VoiceConnectionDisconnectReason.EndpointRemoved });
+
+    tick(4_000);
+    voice.transition(Status.Connecting);
+    tick(6_000);
+    voice.transition(Status.Ready);
+
+    assert.equal(attempts.length, 1);
+    assert.deepEqual(voice.leaves, []);
+    assert.deepEqual(exits, []);
+});
+
 test('honors a moderator removal as soon as the Discord gateway acknowledges a join', t => {
     const { clients: [client], guild, attempts, exits, tick } = scenario(t);
     client.emit('clientReady');
