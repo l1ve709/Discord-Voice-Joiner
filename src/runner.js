@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { stripVTControlCharacters } from 'node:util';
-import { Events } from 'discord.js';
+import { DiscordjsErrorCodes, Events, PermissionFlagsBits, RESTJSONErrorCodes } from 'discord.js';
 import {
     getVoiceConnection,
     joinVoiceChannel,
@@ -64,7 +64,7 @@ function startAccount(account, reconnect, { createClient, connectVoice, log, fin
         releaseVoice(sendLeave);
         function closeFailed(error) {
             log(label, 'Could not close the Discord client.', error);
-            finished(true);
+            finished(failed, true);
         }
         try {
             const closing = client?.destroy();
@@ -126,16 +126,20 @@ function startAccount(account, reconnect, { createClient, connectVoice, log, fin
             }
             if (current.status === VoiceConnectionStatus.Disconnected &&
                 current.reason === VoiceConnectionDisconnectReason.WebSocketClose &&
-                current.closeCode === 4014) {
+                current.closeCode === 4014 && !interrupted) {
                 interrupted = true;
+                account.status = 'waiting for voice server';
+                schedule(() => finish('disconnected', 'Discord closed the voice session.', {
+                    failed: !hasJoined,
+                    sendLeave: false,
+                }), RECOVERY_TIMEOUT_MS);
             }
             if (interrupted) {
-                if (account.status !== 'waiting for voice server') {
-                    account.status = 'waiting for voice server';
-                    schedule(() => finish('disconnected', 'Discord closed the voice session.', {
-                        failed: !hasJoined,
+                if (current.status === VoiceConnectionStatus.Connecting && account.status === 'waiting for voice server') {
+                    account.status = 'reconnecting';
+                    schedule(() => finish('failed', 'The replacement voice server did not finish connecting.', {
                         sendLeave: false,
-                    }), RECOVERY_TIMEOUT_MS);
+                    }), JOIN_TIMEOUT_MS);
                 }
                 return;
             }
@@ -161,7 +165,9 @@ function startAccount(account, reconnect, { createClient, connectVoice, log, fin
             if (previous.status !== current.status || previous.reason !== current.reason ||
                 previous.closeCode !== current.closeCode) update(current);
         });
-        schedule(() => retry('Voice connection timed out.'), JOIN_TIMEOUT_MS);
+        schedule(() => retry(hasJoined
+            ? 'Voice connection timed out after Discord confirmed the channel. Check UDP connectivity.'
+            : 'Discord did not confirm the voice join. Check channel permissions and capacity.'), JOIN_TIMEOUT_MS);
         update(attempt.state);
     }
 
@@ -172,15 +178,23 @@ function startAccount(account, reconnect, { createClient, connectVoice, log, fin
                 retry(`Server ${guildId} is temporarily unavailable.`);
                 return;
             }
-            const channel = guild?.channels.cache.get(channelId);
-            if (!channel?.isVoiceBased()) {
-                finish('invalid destination', guild
-                    ? `Voice or stage channel ${channelId} was not found in server ${guildId}.`
-                    : `Server ${guildId} was not found.`);
+            if (!guild) {
+                finish('invalid destination', `Server ${guildId} was not found. Check the server ID and install the bot there.`);
                 return;
             }
-            if (guild.members?.me && channel.joinable === false) {
-                finish('cannot join', `The bot cannot join ${channel.name}.`);
+            const channel = guild.channels.cache.get(channelId);
+            if (!channel?.isVoiceBased()) {
+                finish('invalid destination', `Channel ${channelId} is not a visible voice or stage channel in server ${guildId}. Check the ID and View Channel permission.`);
+                return;
+            }
+            const botMember = guild.members?.me;
+            if (botMember && channel.joinable === false) {
+                finish('cannot join', `The bot cannot join ${channel.name}. Check its View Channel and Connect permissions.`);
+                return;
+            }
+            if (botMember && channel.full && botMember.voice.channelId !== channelId &&
+                !channel.permissionsFor(botMember)?.has(PermissionFlagsBits.MoveMembers)) {
+                retry(`Voice channel ${channel.name} is full.`);
                 return;
             }
 
@@ -201,7 +215,12 @@ function startAccount(account, reconnect, { createClient, connectVoice, log, fin
 
     function loginFailed(error) {
         if (closed) return;
-        log(label, 'Could not sign in.', error);
+        if (error?.code === DiscordjsErrorCodes.TokenInvalid || error?.status === 401 ||
+            error?.code === RESTJSONErrorCodes.InvalidToken) {
+            log(label, 'Discord rejected the bot token. Check BOT_TOKENS against the Developer Portal.');
+        } else {
+            log(label, 'Could not sign in.', error);
+        }
         finish('login failed');
     }
 
@@ -212,7 +231,8 @@ function startAccount(account, reconnect, { createClient, connectVoice, log, fin
             if (!closed) log(label, 'Client error.', error);
         });
         client.once(Events.ShardDisconnect, event => {
-            finish('gateway disconnected', `Discord closed the gateway connection with code ${event.code}.`, {
+            const hint = event.code === 4004 ? ' Check the bot token in BOT_TOKENS.' : '';
+            finish('gateway disconnected', `Discord closed the gateway connection with code ${event.code}.${hint}`, {
                 sendLeave: false,
             });
         });
@@ -223,8 +243,10 @@ function startAccount(account, reconnect, { createClient, connectVoice, log, fin
             if (channel.id === channelId) finish('channel removed', 'The destination channel was deleted.', { sendLeave: false });
         });
         client.on(Events.VoiceStateUpdate, (previous, current) => {
-            if (hasJoined && current.id === client.user?.id && current.guild?.id === guildId &&
-                previous.channelId === channelId && current.channelId !== channelId) {
+            if (!connection || current.id !== client.user?.id || current.guild?.id !== guildId) return;
+            if (current.channelId === channelId) {
+                hasJoined = true;
+            } else if (hasJoined && previous.channelId === channelId) {
                 finish('disconnected', 'The bot left or was moved from the destination channel.', {
                     failed: false,
                     sendLeave: false,
@@ -271,12 +293,14 @@ export function run(config, { createClient, connectVoice = joinVoiceChannel, wri
         : undefined;
     let remaining = accounts.length;
     let hadFailure = false;
+    let cleanupFailed = false;
     let stopping = false;
-    function finished(failed) {
+    function finished(failed, closeFailed = false) {
         hadFailure ||= failed;
+        cleanupFailed ||= closeFailed;
         if (--remaining === 0) {
             clearInterval(report);
-            onComplete(!stopping && hadFailure ? 1 : 0);
+            onComplete(cleanupFailed || (!stopping && hadFailure) ? 1 : 0);
         }
     }
 

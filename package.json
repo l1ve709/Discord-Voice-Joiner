@@ -1,6 +1,6 @@
 {
   "name": "discord-voice-joiner",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "type": "module",
   "description": "Connect Discord bots to voice and stage channels",
   "main": "./src/server.js",

@@ -23,11 +23,12 @@ test('uses destination defaults and applies per-account overrides without mutati
 });
 
 test('accepts only the bot token setting and rejects duplicates or prefixes without exposing credentials', () => {
-    assert.throws(() => loadConfig({ env: { TOKENS: 'legacy.secret' } }), /Set BOT_TOKENS/);
+    assert.throws(() => loadConfig({ env: { TOKENS: 'legacy.secret' } }), /Replace TOKENS with BOT_TOKENS/);
     assert.throws(() => loadConfig({ env: { ...env, BOT_TOKENS: 'example.secret, example.secret' } }), {
         message: 'BOT_TOKENS contains a duplicate.',
     });
     assert.throws(() => loadConfig({ env: { ...env, BOT_TOKENS: 'Bot example.secret' } }), /without authorization prefixes/);
+    assert.throws(() => loadConfig({ env: { ...env, BOT_TOKENS: 'first.token,,second.token' } }), /empty entry/);
 });
 
 test('validates IDs, account options, and timer settings before connecting', () => {
@@ -47,11 +48,25 @@ test('validates IDs, account options, and timer settings before connecting', () 
 test('CLI exits with an error for missing credentials', () => {
     const result = spawnSync(process.execPath, ['.'], {
         cwd: new URL('../', import.meta.url),
-        env: { ...process.env, BOT_TOKENS: '' },
+        env: { ...process.env, BOT_TOKENS: '', TOKENS: '' },
         encoding: 'utf8',
         timeout: 10_000,
     });
     assert.ifError(result.error);
     assert.equal(result.status, 1);
     assert.match(result.stderr, /Set BOT_TOKENS in .env/);
+});
+
+test('CLI checks configuration offline and prints destinations without tokens', () => {
+    const result = spawnSync(process.execPath, ['.', '--check'], {
+        cwd: new URL('../', import.meta.url),
+        env: { ...process.env, ...env },
+        encoding: 'utf8',
+        timeout: 10_000,
+    });
+    assert.ifError(result.error);
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /Bot #1 will use server 101 and channel 102/);
+    assert.match(result.stdout, /Bot #2 will use server 101 and channel 102/);
+    assert.ok(!result.stdout.includes('first.token') && !result.stdout.includes('second.token'));
 });

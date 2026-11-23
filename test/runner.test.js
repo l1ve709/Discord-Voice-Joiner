@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { test } from 'node:test';
-import { Client, Events, GatewayIntentBits } from 'discord.js';
+import { Client, DiscordjsErrorCodes, Events, GatewayIntentBits, PermissionFlagsBits } from 'discord.js';
 import { getVoiceConnection, joinVoiceChannel, VoiceConnectionDisconnectReason, VoiceConnectionStatus as Status } from '@discordjs/voice';
 import { run } from '../src/runner.js';
 
@@ -167,7 +167,10 @@ test('lets a voice server move recover, then stops if Discord removes the accoun
     const [{ voice }] = attempts;
     voice.transition(Status.Ready);
     voice.transition(Status.Disconnected, { reason: VoiceConnectionDisconnectReason.WebSocketClose, closeCode: 4014 });
+    tick(4_000);
     voice.transition(Status.Connecting);
+    tick(10_000);
+    assert.deepEqual(exits, []);
     voice.transition(Status.Ready);
     tick(5_000);
     assert.deepEqual(exits, []);
@@ -177,6 +180,56 @@ test('lets a voice server move recover, then stops if Discord removes the accoun
     assert.equal(attempts.length, 1);
     assert.deepEqual(voice.leaves, [false]);
     assert.deepEqual(exits, [0]);
+});
+
+test('honors a moderator removal as soon as the Discord gateway acknowledges a join', t => {
+    const { clients: [client], guild, attempts, exits, tick } = scenario(t);
+    client.emit('clientReady');
+    const [{ voice }] = attempts;
+    client.emit('voiceStateUpdate', { channelId: null }, { id: client.user.id, guild, channelId });
+    client.emit('voiceStateUpdate', { channelId }, { id: client.user.id, guild, channelId: null });
+    tick(30_000);
+    assert.equal(attempts.length, 1);
+    assert.deepEqual(voice.leaves, [false]);
+    assert.deepEqual(exits, [0]);
+});
+
+test('waits for a slot in a full voice channel', t => {
+    const { clients: [client], guild, attempts, logs, tick } = scenario(t);
+    guild.members = { me: { voice: { channelId: null } } };
+    const channel = guild.channels.cache.get(channelId);
+    channel.full = true;
+    channel.permissionsFor = () => ({ has: () => false });
+    client.emit('clientReady');
+    assert.equal(attempts.length, 0);
+    assert.ok(logs.includes('Voice channel Voice is full.'));
+    channel.full = false;
+    tick(100);
+    assert.equal(attempts.length, 1);
+});
+
+test('allows a bot with Move Members to join a full channel', t => {
+    const { clients: [client], guild, attempts } = scenario(t);
+    guild.members = { me: { voice: { channelId: null } } };
+    const channel = guild.channels.cache.get(channelId);
+    channel.full = true;
+    channel.permissionsFor = () => ({ has: permission => permission === PermissionFlagsBits.MoveMembers });
+    client.emit('clientReady');
+    assert.equal(attempts.length, 1);
+});
+
+test('provides a token-specific hint when Discord rejects credentials', async t => {
+    const { logs, exits } = scenario(t, {
+        setup: ([client]) => {
+            client.login = async () => {
+                throw Object.assign(new Error('secret.0'), { code: DiscordjsErrorCodes.TokenInvalid });
+            };
+        },
+    });
+    await Promise.resolve();
+    assert.ok(logs.some(line => line.includes('Check BOT_TOKENS')));
+    assert.ok(logs.every(line => !line.includes('secret.0')));
+    assert.deepEqual(exits, [1]);
 });
 
 test('does not issue a new join after an unrecovered 4014 close', t => {
@@ -288,6 +341,15 @@ test('bounds asynchronous client cleanup and reports completion only once', asyn
     resolveClose();
     await Promise.resolve();
     assert.deepEqual(exits, [1]);
+});
+
+test('reports a failed shutdown if the gateway client cannot be closed', async t => {
+    const { clients: [client], logs, exits, stop } = scenario(t);
+    client.destroy = async () => { throw new Error('Close failed'); };
+    stop();
+    await Promise.resolve();
+    assert.deepEqual(exits, [1]);
+    assert.ok(logs.some(line => line.includes('Could not close the Discord client.')));
 });
 
 test('runs the bot lifecycle with the installed discord.js client and a stub gateway', async t => {

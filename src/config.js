@@ -27,7 +27,7 @@ function readId(override, fallback, label) {
     const value = override === '' ? fallback : override ?? fallback;
     const id = typeof value === 'string' ? value.trim() : '';
     if (!/^[1-9]\d{0,19}$/.test(id) || BigInt(id) > MAX_SNOWFLAKE) {
-        throw new Error(`${label} must be a valid Discord ID written as a string.`);
+        throw new Error(`${label} must be a Discord ID. Enable Developer Mode and use Copy ID in Discord.`);
     }
     return id;
 }
@@ -72,10 +72,15 @@ export function loadConfig({
     reconnect = RECONNECT,
     statusReportIntervalMs = STATUS_REPORT_INTERVAL_MS,
 } = {}) {
-    const tokens = (env.BOT_TOKENS ?? '').split(',').map(token => token.trim()).filter(Boolean);
-
-    if (tokens.length === 0) {
-        throw new Error('Set BOT_TOKENS in .env using bot tokens from the Discord Developer Portal.');
+    const tokenList = env.BOT_TOKENS?.trim();
+    if (!tokenList) {
+        throw new Error(env.TOKENS?.trim()
+            ? 'Replace TOKENS with BOT_TOKENS and use bot tokens from the Discord Developer Portal.'
+            : 'Set BOT_TOKENS in .env using bot tokens from the Discord Developer Portal.');
+    }
+    const tokens = tokenList.split(',').map(token => token.trim());
+    if (tokens.some(token => !token)) {
+        throw new Error('BOT_TOKENS contains an empty entry. Separate bot tokens with a single comma.');
     }
     if (tokens.some(token => /\s/.test(token))) {
         throw new Error('Use raw bot tokens in BOT_TOKENS, without authorization prefixes.');
@@ -109,8 +114,8 @@ export function loadConfig({
         }
         return {
             token,
-            guildId: readId(settings.guildId, env.DEFAULT_GUILD_ID, `${label} guildId`),
-            channelId: readId(settings.channelId, env.DEFAULT_CHANNEL_ID, `${label} channelId`),
+            guildId: readId(settings.guildId, env.DEFAULT_GUILD_ID, `${label} guildId (DEFAULT_GUILD_ID or override)`),
+            channelId: readId(settings.channelId, env.DEFAULT_CHANNEL_ID, `${label} channelId (DEFAULT_CHANNEL_ID or override)`),
             mute,
             deaf,
             presence: readPresence(settings.presence, label),

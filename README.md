@@ -24,9 +24,9 @@ npm ci
 
 To copy IDs, enable Developer Mode under **User Settings → Advanced**, then right-click the server or channel and choose **Copy ID**. Keep `.env` private.
 
-Run `npm start`. Press Ctrl+C to disconnect and exit.
+Run `npm start -- --check` to validate the configuration and see where each bot will connect. Then run `npm start` and look for `Joined <channel name>.` Press Ctrl+C to disconnect and exit.
 
-If you are upgrading from a version configured with `TOKENS`, replace that setting with `BOT_TOKENS` and use tokens issued for Discord bots. Keep your existing server and channel IDs.
+To upgrade from 2.x, replace `TOKENS` with `BOT_TOKENS` and use tokens issued for Discord bots. Keep your existing server and channel IDs.
 
 ## Per-bot settings
 
@@ -57,6 +57,15 @@ Each bot signs in and joins independently. A bot stops after 60 seconds without 
 If a moderator removes a bot from its destination, the bot stops. The process exits with status 1 if all bots have stopped and at least one failed. Ctrl+C closes all active connections.
 
 Edit `RECONNECT` in [src/config.js](src/config.js) to change the retry settings. Set `STATUS_REPORT_INTERVAL_MS` to `0` to turn off periodic status logs.
+
+## Troubleshooting
+
+| What you see | What to check |
+| --- | --- |
+| Discord rejected the bot token | Copy the token from the application's **Bot** page. It goes in `BOT_TOKENS` without a prefix. |
+| Server or channel not found | Check the IDs and confirm the bot is installed in the server and has **View Channel** and **Connect** in the destination. |
+| Voice channel is full | Free a slot or choose a different channel. |
+| Voice connection times out after Discord confirms the channel | Check that the machine can send and receive UDP traffic. |
 
 ## Tests
 
